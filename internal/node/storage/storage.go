@@ -3,67 +3,72 @@ package storage
 import "sync"
 
 type Storage struct {
-	mutex   sync.RWMutex
-	data    map[string]string
-	writeCh <-chan WriteRequest
-	readCh  <-chan ReadRequest
+	mutex sync.RWMutex
+	data  map[string]string
+
+	storeCh chan storeRequest
+	loadCh  chan loadRequest
 }
 
-type Option func(*Storage)
+func (storage *Storage) store(req storeRequest) {
+	storage.mutex.Lock()
+	defer storage.mutex.Unlock()
 
-func WithSize(size int) Option {
-	return func(storage *Storage) {
-		storage.data = make(map[string]string, size)
+	storage.data[req.key] = req.value
+	req.respCh <- storeResponse{
+		success: true,
 	}
 }
 
-func New(options ...Option) *Storage {
-	storage := &Storage{
-		data: make(map[string]string),
-	}
-
-	for _, option := range options {
-		option(storage)
-	}
-
-	return storage
-}
-
-func (storage *Storage) ListenOnWrite(stream WriteRequestStream) {
-	storage.mutex.Lock()
-	defer storage.mutex.Unlock()
-	storage.writeCh = stream()
-}
-
-func (storage *Storage) ListenOnRead(stream ReadRequestStream) {
-	storage.mutex.Lock()
-	defer storage.mutex.Unlock()
-	storage.readCh = stream()
-}
-
-func (storage *Storage) write(key, value string) bool {
-	storage.mutex.Lock()
-	defer storage.mutex.Unlock()
-	storage.data[key] = value
-	return true
-}
-
-func (storage *Storage) read(key string) (string, bool) {
+func (storage *Storage) load(req loadRequest) {
 	storage.mutex.RLock()
 	defer storage.mutex.RUnlock()
-	value, ok := storage.data[key]
-	return value, ok
+
+	value, success := storage.data[req.key]
+	req.respCh <- loadResponse{
+		value: value, success: success,
+	}
 }
 
-func (storage *Storage) Run() {
-	for {
-		select {
-		case writeRequest := <-storage.writeCh:
-			success := storage.write(writeRequest.key, writeRequest.value)
-			writeRequest.callback <- WriteResponse{success}
-		case readRequest := <-storage.readCh:
-			value, success := storage.read(readRequest.key)
-			readRequest.callback <- ReadResponse{success, value}
-		}
+func (storage *Storage) Store(key string, value string) bool {
+	done := make(chan storeResponse)
+
+	storage.storeCh <- storeRequest{
+		key: key, value: value, respCh: done,
 	}
+
+	response := <-done
+	return response.success
+}
+
+func (storage *Storage) Load(key string) (string, bool) {
+	done := make(chan loadResponse)
+
+	storage.loadCh <- loadRequest{
+		key: key, respCh: done,
+	}
+
+	response := <-done
+	return response.value, response.success
+}
+
+func New() *Storage {
+	storage := &Storage{
+		data:    make(map[string]string),
+		storeCh: make(chan storeRequest),
+		loadCh:  make(chan loadRequest),
+	}
+
+	go func() {
+		for {
+			select {
+			case req := <-storage.storeCh:
+				storage.store(req)
+			case req := <-storage.loadCh:
+				storage.load(req)
+			}
+		}
+	}()
+
+	return storage
 }
