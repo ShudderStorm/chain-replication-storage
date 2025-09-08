@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package replica;
+
+option go_package = "replica/pb";
+
+service Replica {
+  rpc Store(StoreRequest) returns (StoreResponse);
+  rpc Load(LoadRequest) returns (LoadResponse);
+}
+
+message StoreRequest {
+  string key = 1;
+  string value = 2;
+}
+
+message StoreResponse {
+  bool success = 1;
+}
+
+message LoadRequest {
+  string key = 1;
+}
+
+message LoadResponse {
+  bool success = 1;
+  string value = 2;
+}

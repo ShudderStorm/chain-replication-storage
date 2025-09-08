@@ -31,24 +31,24 @@ func (storage *Storage) load(req loadRequest) {
 }
 
 func (storage *Storage) Store(key string, value string) bool {
-	done := make(chan storeResponse)
+	respCh := make(chan storeResponse)
 
 	storage.storeCh <- storeRequest{
-		key: key, value: value, respCh: done,
+		key: key, value: value, respCh: respCh,
 	}
 
-	response := <-done
+	response := <-respCh
 	return response.success
 }
 
 func (storage *Storage) Load(key string) (string, bool) {
-	done := make(chan loadResponse)
+	respCh := make(chan loadResponse)
 
 	storage.loadCh <- loadRequest{
-		key: key, respCh: done,
+		key: key, respCh: respCh,
 	}
 
-	response := <-done
+	response := <-respCh
 	return response.value, response.success
 }
 
